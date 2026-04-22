@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
+      "Bash(npx tsc *)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(curl -s http://localhost:3000/_next/static/chunks/\\\\[root-of-the-server\\\\]__0yx2pr5._.css)",
+      "Bash(curl -s \"http://localhost:3000\")",
+      "Bash(grep -oE \"class=\\\\\"[^\\\\\"]{0,80}\\\\\"\")",
+      "Bash(curl -s \"http://localhost:3000/_next/static/chunks/%5Broot-of-the-server%5D__0yx2pr5._.css\")",
+      "Bash(pkill -f \"next dev\")",
+      "WebFetch(domain:www.retellai.com)"
+    ]
+  }
+}
