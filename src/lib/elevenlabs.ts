@@ -11,13 +11,21 @@ export interface ElevenLabsVoice {
 export async function listVoices(): Promise<ElevenLabsVoice[]> {
   const res = await fetch(`${BASE}/voices`, {
     headers: { 'xi-api-key': KEY() },
+    cache: 'no-store',
   })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`ElevenLabs ${res.status}: ${body || res.statusText}`)
+  }
   const data = await res.json()
-  return (data.voices ?? []).map((v: any) => ({
-    voice_id: v.voice_id,
-    name: v.name,
-    category: v.category ?? 'premade',
-    preview_url: v.preview_url ?? null,
+  if (!Array.isArray(data.voices)) {
+    throw new Error('Unexpected ElevenLabs response shape')
+  }
+  return data.voices.map((v: Record<string, unknown>) => ({
+    voice_id: v.voice_id as string,
+    name: v.name as string,
+    category: (v.category as string) ?? 'premade',
+    preview_url: (v.preview_url as string | null) ?? null,
   }))
 }
 

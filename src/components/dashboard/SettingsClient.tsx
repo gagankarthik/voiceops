@@ -279,10 +279,12 @@ function VoiceTab({ config }: { config: BusinessConfig | null }) {
   const [voices, setVoices] = useState<ElevenVoice[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
-  const [selectedId, setSelectedId] = useState(config?.elevenLabsVoiceId ?? '')
-  const [selectedName, setSelectedName] = useState(config?.elevenLabsVoiceName ?? '')
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  // savedId/savedName = what is persisted in DB (shown in Active voice banner)
+  const [savedId, setSavedId] = useState(config?.elevenLabsVoiceId ?? '')
+  const [savedName, setSavedName] = useState(config?.elevenLabsVoiceName ?? '')
+  // savingId = which card is mid-save right now
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState('')
   const [playingId, setPlayingId] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [filter, setFilter] = useState('')
@@ -317,21 +319,28 @@ function VoiceTab({ config }: { config: BusinessConfig | null }) {
     audio.onended = () => setPlayingId(null)
   }
 
-  async function saveVoice() {
-    if (!selectedId) return
-    setSaving(true)
-    await fetch('/api/onboarding', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...config,
-        elevenLabsVoiceId: selectedId,
-        elevenLabsVoiceName: selectedName,
-      }),
-    })
-    setSaving(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
+  async function selectVoice(voice: ElevenVoice) {
+    if (savingId) return          // block concurrent saves
+    setSavingId(voice.voice_id)
+    setSaveError('')
+    try {
+      const res = await fetch('/api/onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...config,
+          elevenLabsVoiceId: voice.voice_id,
+          elevenLabsVoiceName: voice.name,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Save failed')
+      setSavedId(voice.voice_id)
+      setSavedName(voice.name)
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error ? e.message : 'Save failed')
+    }
+    setSavingId(null)
   }
 
   const CATEGORY_STYLE: Record<string, string> = {
@@ -347,25 +356,21 @@ function VoiceTab({ config }: { config: BusinessConfig | null }) {
 
   return (
     <div className="space-y-6">
-      {/* Current voice */}
+      {/* Active voice banner */}
       <section className="p-6 rounded-xl border border-zinc-100 bg-white shadow-sm">
         <h2 className="text-sm font-semibold text-zinc-900 mb-4">Active voice</h2>
-        {selectedId ? (
-          <div className="flex items-center justify-between p-4 rounded-lg border border-zinc-200 bg-zinc-50">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-zinc-900 flex items-center justify-center">
-                <Mic size={15} className="text-white" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-zinc-900">{selectedName || selectedId}</p>
-                <p className="text-xs text-zinc-400 font-mono mt-0.5">{selectedId}</p>
-              </div>
+        {savedId ? (
+          <div className="flex items-center gap-3 p-4 rounded-lg border border-zinc-200 bg-zinc-50">
+            <div className="w-9 h-9 rounded-full bg-zinc-900 flex items-center justify-center flex-shrink-0">
+              <Mic size={15} className="text-white" />
             </div>
-            <button onClick={saveVoice} disabled={saving}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-zinc-900 text-white font-medium hover:bg-zinc-700 disabled:opacity-50 transition-colors">
-              {saving ? <Loader2 size={11} className="animate-spin" /> : saved ? <Check size={11} /> : null}
-              {saved ? 'Saved!' : saving ? 'Saving…' : 'Save voice'}
-            </button>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-zinc-900">{savedName || savedId}</p>
+              <p className="text-xs text-zinc-400 font-mono mt-0.5 truncate">{savedId}</p>
+            </div>
+            <span className="ml-auto text-xs px-2 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-100 font-medium flex-shrink-0">
+              Saved
+            </span>
           </div>
         ) : (
           <div className="flex items-center gap-3 p-4 rounded-lg border border-zinc-100 bg-zinc-50">
@@ -373,8 +378,8 @@ function VoiceTab({ config }: { config: BusinessConfig | null }) {
               <Mic size={15} className="text-zinc-400" />
             </div>
             <div>
-              <p className="text-sm font-medium text-zinc-600">No voice selected</p>
-              <p className="text-xs text-zinc-400 mt-0.5">Load voices below to pick one</p>
+              <p className="text-sm font-medium text-zinc-600">No voice saved yet</p>
+              <p className="text-xs text-zinc-400 mt-0.5">Click any voice in the library below to select and save it instantly</p>
             </div>
           </div>
         )}
@@ -385,10 +390,10 @@ function VoiceTab({ config }: { config: BusinessConfig | null }) {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-sm font-semibold text-zinc-900">ElevenLabs voice library</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Preview and select a voice for your AI receptionist.</p>
+            <p className="text-xs text-zinc-400 mt-0.5">Click a voice to select and save it instantly. Preview first with the play button.</p>
           </div>
           <button onClick={loadVoices} disabled={loading}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-200 text-zinc-700 text-xs font-medium hover:bg-zinc-50 disabled:opacity-50 transition-colors">
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-zinc-200 text-zinc-700 text-xs font-medium hover:bg-zinc-50 disabled:opacity-50 transition-colors whitespace-nowrap">
             {loading ? <Loader2 size={12} className="animate-spin" /> : null}
             {loading ? 'Loading…' : voices.length > 0 ? 'Refresh' : 'Load voices'}
           </button>
@@ -401,41 +406,57 @@ function VoiceTab({ config }: { config: BusinessConfig | null }) {
           </div>
         )}
 
+        {saveError && (
+          <div className="flex items-center justify-between text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <span>{saveError}</span>
+            <button onClick={() => setSaveError('')}><X size={12} /></button>
+          </div>
+        )}
+
         {voices.length > 0 && (
           <input
             value={filter}
             onChange={e => setFilter(e.target.value)}
-            placeholder="Filter voices by name or category…"
+            placeholder="Filter by name or category…"
             className={inputClass}
           />
         )}
 
         {voices.length === 0 && !loading && !loadError && (
           <div className="text-center py-10 text-zinc-400 text-sm">
-            Click "Load voices" to fetch available ElevenLabs voices.
+            Click "Load voices" to fetch your ElevenLabs library.
           </div>
         )}
 
         {filtered.length > 0 && (
-          <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
             {filtered.map(v => {
-              const isSelected = selectedId === v.voice_id
+              const isSaved = savedId === v.voice_id
+              const isSaving = savingId === v.voice_id
               return (
                 <div
                   key={v.voice_id}
-                  onClick={() => { setSelectedId(v.voice_id); setSelectedName(v.name) }}
-                  className={`flex items-center justify-between p-3.5 rounded-lg border cursor-pointer transition-all ${
-                    isSelected
+                  onClick={() => !savingId && selectVoice(v)}
+                  className={`flex items-center justify-between p-3.5 rounded-lg border transition-all select-none ${
+                    isSaved
                       ? 'border-zinc-900 bg-zinc-50 shadow-sm'
-                      : 'border-zinc-100 hover:border-zinc-200 hover:bg-zinc-50'
+                      : savingId
+                      ? 'border-zinc-100 opacity-50 cursor-not-allowed'
+                      : 'border-zinc-100 hover:border-zinc-300 hover:bg-zinc-50 cursor-pointer'
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    {isSelected ? (
-                      <CheckCircle2 size={16} className="text-zinc-900 flex-shrink-0" />
-                    ) : (
-                      <div className="w-4 h-4 rounded-full border-2 border-zinc-200 flex-shrink-0" />
-                    )}
+                    {/* Left indicator */}
+                    <div className="flex-shrink-0 w-5 h-5 flex items-center justify-center">
+                      {isSaving ? (
+                        <Loader2 size={15} className="text-zinc-500 animate-spin" />
+                      ) : isSaved ? (
+                        <CheckCircle2 size={16} className="text-zinc-900" />
+                      ) : (
+                        <div className="w-4 h-4 rounded-full border-2 border-zinc-200" />
+                      )}
+                    </div>
+
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-zinc-900 truncate">{v.name}</p>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded border capitalize ${CATEGORY_STYLE[v.category] ?? 'bg-zinc-50 text-zinc-500 border-zinc-100'}`}>
@@ -443,19 +464,25 @@ function VoiceTab({ config }: { config: BusinessConfig | null }) {
                       </span>
                     </div>
                   </div>
-                  {v.preview_url && (
-                    <button
-                      onClick={e => { e.stopPropagation(); togglePreview(v) }}
-                      className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors flex-shrink-0 ml-3 ${
-                        playingId === v.voice_id
-                          ? 'bg-zinc-900 text-white border-zinc-900'
-                          : 'border-zinc-200 text-zinc-600 hover:bg-zinc-50'
-                      }`}
-                    >
-                      {playingId === v.voice_id ? <Square size={11} /> : <Play size={11} />}
-                      {playingId === v.voice_id ? 'Stop' : 'Preview'}
-                    </button>
-                  )}
+
+                  <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                    {isSaved && (
+                      <span className="text-xs text-teal-600 font-medium">Active</span>
+                    )}
+                    {v.preview_url && (
+                      <button
+                        onClick={e => { e.stopPropagation(); togglePreview(v) }}
+                        className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${
+                          playingId === v.voice_id
+                            ? 'bg-zinc-900 text-white border-zinc-900'
+                            : 'border-zinc-200 text-zinc-600 hover:bg-zinc-50'
+                        }`}
+                      >
+                        {playingId === v.voice_id ? <Square size={11} /> : <Play size={11} />}
+                        {playingId === v.voice_id ? 'Stop' : 'Preview'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               )
             })}
@@ -466,14 +493,6 @@ function VoiceTab({ config }: { config: BusinessConfig | null }) {
           <p className="text-center text-sm text-zinc-400 py-6">No voices match your filter.</p>
         )}
       </section>
-
-      {selectedId && (
-        <button onClick={saveVoice} disabled={saving}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-700 disabled:opacity-50 transition-colors">
-          {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <Check size={14} /> : null}
-          {saved ? 'Voice saved!' : saving ? 'Saving…' : 'Save selected voice'}
-        </button>
-      )}
     </div>
   )
 }
